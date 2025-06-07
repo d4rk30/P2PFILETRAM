@@ -265,16 +265,22 @@ class P2PNode:
 def parse_arguments():
     """解析命令行参数"""
     parser = argparse.ArgumentParser(
-        description='P2P文件传输系统 - 第一阶段节点发现',
+        description='P2P文件传输系统 - 第一阶段',
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        add_help=False,  # 禁用默认的-h选项
         epilog="""
 示例用法:
   python main.py                    # 使用默认设置启动
-  python main.py -p 12001          # 指定端口
+  python main.py -p 12001           # 指定业务端口端口，用来进行文件传输
   python main.py -n "我的节点"      # 指定节点名称
-  python main.py -b 23334          # 指定广播端口
+  python main.py -b 23334           # 指定广播端口，用来发现其他节点
         """
     )
+
+    # 手动添加中文帮助选项
+    parser.add_argument('-h', '--help',
+                        action='help',
+                        help='显示此帮助信息并退出')
 
     parser.add_argument('-p', '--port',
                         type=int,
@@ -284,6 +290,7 @@ def parse_arguments():
     parser.add_argument('-b', '--broadcast-port',
                         type=int,
                         default=23333,
+                        metavar='PORT',
                         help='广播端口 (默认: 23333)')
 
     parser.add_argument('-n', '--name',
@@ -292,7 +299,8 @@ def parse_arguments():
 
     parser.add_argument('--version',
                         action='version',
-                        version='P2P文件传输系统 v1.0 - 第一阶段')
+                        version='P2P文件传输系统 v1.0 - 第一阶段',
+                        help='显示程序版本号并退出')
 
     return parser.parse_args()
 
