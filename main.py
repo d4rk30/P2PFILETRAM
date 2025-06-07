@@ -33,9 +33,7 @@ class P2PNode:
                 break  # 如果成功绑定，说明端口可用
             except socket.error as e:
                 # 尝试下一个端口
-                new_port = port + 1
-                print(f"[提示] 端口 {port} 已被占用，尝试使用端口 {new_port}")
-                port = new_port
+                port = port + 1
 
         self.port = port
 
