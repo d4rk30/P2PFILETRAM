@@ -188,13 +188,7 @@ class P2PNode:
         """启动命令行界面"""
         while self.running:
             try:
-                # 保存当前光标位置
-                sys.stdout.write("\033[s")  # 保存光标位置
-                sys.stdout.write("\033[A")  # 向上移动一行
-                sys.stdout.write("\033[2K")  # 清除该行
-                sys.stdout.write("\033[u")  # 恢复光标位置
-                sys.stdout.flush()
-
+                print()  # 添加空行分隔
                 cmd = input("P2P> ").strip().lower()
 
                 if not cmd:
@@ -232,6 +226,7 @@ class P2PNode:
         print("clear   (c) - 清屏")
         print("help    (h) - 显示本帮助信息")
         print("quit    (q) - 退出程序")
+        sys.stdout.flush()  # 强制刷新输出缓冲区
 
     def _clear_screen(self):
         """清屏"""
