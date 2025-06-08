@@ -152,7 +152,6 @@ class P2PNode:
         """处理系统信号"""
         print("\n[信息] 收到停止信号，正在关闭...")
         self.stop()
-        print("[信息] 程序已退出")
         sys.exit(0)
 
     def _show_node_info(self):
@@ -195,7 +194,7 @@ class P2PNode:
                     continue
 
                 # 执行命令
-                if cmd == 'help':
+                if cmd == 'help' or cmd == 'h':
                     self._show_help()
                 elif cmd == 'info' or cmd == 'i':
                     self._show_node_info()
@@ -203,18 +202,17 @@ class P2PNode:
                     print(self.neighbor_manager.format_neighbors_list())
                 elif cmd == 'clear' or cmd == 'c':
                     self._clear_screen()
-                    # 清屏后重新显示分隔符
-                    print("=" * 62)
                 elif cmd == 'quit' or cmd == 'q':
                     self.stop()
-                    print("[信息] 程序已退出")
                     break
                 else:
                     print(f"[错误] 未知命令: {cmd}")
                     print("[提示] 输入 'help' 查看可用命令")
 
             except KeyboardInterrupt:
-                print("\n[信息] 使用 'quit' 命令退出程序")
+                print("\n[信息] 收到中断信号，正在退出...")
+                self.stop()
+                break
             except Exception as e:
                 print(f"[错误] 命令执行出错: {e}")
 
@@ -315,7 +313,7 @@ def main():
         node.start()
 
     except KeyboardInterrupt:
-        print("\n[信息] 程序被用户中断")
+        pass  # Ctrl+C已经在CLI中处理了
     except Exception as e:
         print(f"[错误] 程序运行出错: {e}")
         import traceback
