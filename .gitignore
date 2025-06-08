@@ -78,3 +78,5 @@ coverage.xml
 *.pid
 node_*.json
 broadcast_*.log
+
+test.txt

@@ -1,7 +1,8 @@
 import socket
 import threading
 import time
-from utils import get_broadcast_address, serialize_message, create_node_info
+from utils import get_broadcast_address
+from protocol import Protocol, MessageType
 
 
 class BroadcastSender:
@@ -18,7 +19,7 @@ class BroadcastSender:
         self.neighbor_manager = None
 
         # 节点信息
-        self.node_info = create_node_info(local_ip, local_port, node_name)
+        self.node_name = node_name or f"node_{local_port}"
 
     def start(self, show_message=True):
         """启动广播发送线程"""
@@ -51,12 +52,15 @@ class BroadcastSender:
 
     def _broadcast_loop(self):
         """广播循环"""
-        # 启动后立即发送一次广播
-        if self.running:
-            try:
-                self._send_broadcast()
-            except Exception as e:
-                print(f"[错误] 广播发送出错: {e}")
+        # 启动后立即发送多次广播，确保被快速发现
+        for i in range(3):  # 前3次快速广播
+            if self.running:
+                try:
+                    self._send_broadcast()
+                    if i < 2:  # 最后一次不等待
+                        time.sleep(0.2)  # 200ms间隔
+                except Exception as e:
+                    print(f"[错误] 广播发送出错: {e}")
 
         while self.running:
             try:
@@ -77,23 +81,13 @@ class BroadcastSender:
             # 设置超时，避免阻塞
             sock.settimeout(1)
 
-            # 更新节点信息的时间戳，但保留原有的节点名称
-            current_name = self.node_info.get('name')
-            self.node_info = create_node_info(
-                self.local_ip, self.local_port, current_name)
+            # 创建节点发现消息
+            data = Protocol.create_discovery_message(
+                self.node_name, self.local_ip, self.local_port)
 
-            # 构造广播消息
-            message = {
-                "type": "NODE_DISCOVERY",
-                "node": self.node_info
-            }
-
-            # 序列化并发送到广播端口
-            data = serialize_message(message)
             if data:
                 broadcast_addr = get_broadcast_address()
                 sock.sendto(data, (broadcast_addr, self.broadcast_port))
-                # print(f"[调试] 已发送广播: {self.node_info['name']} ({self.local_ip}:{self.local_port}) -> {broadcast_addr}:{self.broadcast_port}")
 
             sock.close()
 
@@ -101,25 +95,27 @@ class BroadcastSender:
             if "Address already in use" not in str(e):  # 忽略端口占用错误的输出
                 print(f"[错误] 发送广播失败: {e}")
 
-    def update_node_info(self, **kwargs):
-        """更新节点信息"""
-        for key, value in kwargs.items():
-            if key in self.node_info:
-                self.node_info[key] = value
+    def update_node_name(self, name):
+        """更新节点名称"""
+        self.node_name = name
 
     def get_node_info(self):
         """获取当前节点信息"""
-        return self.node_info.copy()
+        return {
+            'name': self.node_name,
+            'ip': self.local_ip,
+            'port': self.local_port
+        }
 
     def set_neighbor_manager(self, neighbor_manager):
         """设置邻居管理器，用于检查名称重复"""
         self.neighbor_manager = neighbor_manager
 
         # 如果当前名称是自动生成的，重新生成唯一名称
-        if self.node_info['name'].startswith('node_'):
+        if self.node_name.startswith('node_'):
             from utils import generate_unique_node_name
             new_name = generate_unique_node_name(neighbor_manager)
-            self.node_info['name'] = new_name
+            self.node_name = new_name
 
     def is_running(self):
         """检查是否正在运行"""

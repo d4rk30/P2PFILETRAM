@@ -7,10 +7,13 @@ import argparse
 import time
 import platform
 import socket
+import os
 from utils import get_local_ip, generate_unique_node_name, find_available_port, is_port_available
 from neighbors import NeighborManager
 from broadcast import BroadcastSender
 from listener import BroadcastListener
+from send_file import FileSender
+from recv_file import FileReceiver, input_lock, file_request_queue, process_file_request
 
 
 class P2PNode:
@@ -65,7 +68,7 @@ class P2PNode:
         else:
             self.node_name = node_name
 
-        # 初始化广播发送器和监听器（但不启动）
+        # 初始化网络组件（但不启动）
         self._init_network_components()
 
         # 运行状态
@@ -82,6 +85,11 @@ class P2PNode:
 
     def _init_network_components(self):
         """初始化网络组件"""
+        # 初始化文件传输组件
+        self.file_sender = FileSender(self.local_ip, self.port)
+        self.file_receiver = FileReceiver(self.local_ip, self.port)
+
+        # 初始化广播组件
         self.broadcaster = BroadcastSender(
             self.local_ip,
             self.port,
@@ -92,7 +100,9 @@ class P2PNode:
             self.neighbor_manager,
             self.local_ip,
             self.port,
-            self.broadcast_port
+            self.broadcast_port,
+            file_receiver=self.file_receiver,
+            file_sender=self.file_sender
         )
 
     def start(self):
@@ -109,9 +119,9 @@ class P2PNode:
             print("[错误] 启动广播发送器失败")
             return False
 
-        # 启动广播监听器
+        # 启动统一监听器
         if not self.listener.start():
-            print("[错误] 启动广播监听器失败")
+            print("[错误] 启动监听器失败")
             self.broadcaster.stop()
             return False
 
@@ -187,11 +197,25 @@ class P2PNode:
         """启动命令行界面"""
         while self.running:
             try:
-                print()  # 添加空行分隔
-                cmd = input("P2P> ").strip().lower()
-
-                if not cmd:
+                # 检查是否有待处理的文件请求
+                try:
+                    request_data = file_request_queue.get_nowait()
+                    # 处理文件请求
+                    process_file_request(request_data)
                     continue
+                except:
+                    pass  # 队列为空，继续正常命令处理
+
+                print()  # 添加空行分隔
+                with input_lock:  # 使用输入锁确保独占性
+                    cmd_input = input("P2P> ").strip()
+
+                if not cmd_input:
+                    continue
+
+                # 解析命令和参数
+                cmd_parts = cmd_input.split()
+                cmd = cmd_parts[0].lower()
 
                 # 执行命令
                 if cmd == 'help' or cmd == 'h':
@@ -202,6 +226,8 @@ class P2PNode:
                     print(self.neighbor_manager.format_neighbors_list())
                 elif cmd == 'clear' or cmd == 'c':
                     self._clear_screen()
+                elif cmd == 'send' or cmd == 's':
+                    self._handle_send_command(cmd_parts)
                 elif cmd == 'quit' or cmd == 'q':
                     self.stop()
                     break
@@ -216,11 +242,82 @@ class P2PNode:
             except Exception as e:
                 print(f"[错误] 命令执行出错: {e}")
 
+    def _handle_send_command(self, cmd_parts):
+        """处理send命令"""
+        if len(cmd_parts) < 3:
+            print("[错误] 用法: send <目标节点IP:端口|节点名称> <文件路径>")
+            print("       示例: send 192.168.1.100:12001 ./example.txt")
+            print("             send node_2 ./example.txt")
+            return
+
+        target = cmd_parts[1]
+        file_path = ' '.join(cmd_parts[2:])  # 支持文件路径中的空格
+
+        # 解析目标节点 - 支持IP:端口和节点名称两种格式
+        target_ip = None
+        target_port = None
+
+        if ':' in target:
+            # IP:端口格式
+            try:
+                target_ip, target_port_str = target.split(':', 1)
+                target_port = int(target_port_str)
+            except ValueError:
+                print("[错误] 端口号必须是数字")
+                return
+        else:
+            # 节点名称格式 - 从在线节点中查找
+            found_node = None
+            for node_key, node_info in self.neighbor_manager.neighbors.items():
+                if node_info.get('name') == target:
+                    found_node = node_info
+                    target_ip, target_port = node_key.split(':')
+                    target_port = int(target_port)
+                    break
+
+            if not found_node:
+                print(f"[错误] 未找到节点 '{target}'")
+                print("[提示] 使用 'peers' 命令查看在线节点列表")
+                return
+
+        # 检查目标节点是否在线
+        node_key = f"{target_ip}:{target_port}"
+        if not self.neighbor_manager.get_neighbor(node_key):
+            print(f"[警告] 目标节点 {target} 不在在线节点列表中")
+            with input_lock:  # 使用输入锁
+                response = input("是否继续发送？(y/n): ").strip().lower()
+            if response not in ['y', 'yes', '是']:
+                print("[信息] 已取消发送")
+                return
+
+        # 检查文件是否存在
+        if not os.path.exists(file_path):
+            print(f"[错误] 文件不存在: {file_path}")
+            return
+
+        # 发送文件
+        self.file_sender.send_file_offer(
+            target_ip, target_port, file_path,
+            self.broadcast_port, self._send_callback
+        )
+
+    def _send_callback(self, success, message):
+        """文件发送回调函数"""
+        if success:
+            print(f"[完成] {message}")
+        else:
+            print(f"[失败] {message}")
+
+        # 重新显示命令提示符
+        print("\nP2P> ", end='', flush=True)
+
     def _show_help(self):
         """显示帮助信息"""
         print("可用命令:")
         print("info    (i) - 显示节点信息和运行状态")
         print("peers   (p) - 显示在线节点列表")
+        print("send    (s) - 发送文件到指定节点")
+        print("              用法: send <IP:端口|节点名称> <文件路径>")
         print("clear   (c) - 清屏")
         print("help    (h) - 显示本帮助信息")
         print("quit    (q) - 退出程序")
@@ -258,7 +355,7 @@ class P2PNode:
 def parse_arguments():
     """解析命令行参数"""
     parser = argparse.ArgumentParser(
-        description='P2P文件传输系统 - 第一阶段',
+        description='P2P文件传输系统 - 第二阶段',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         add_help=False,  # 禁用默认的-h选项
         epilog="""
@@ -292,7 +389,7 @@ def parse_arguments():
 
     parser.add_argument('--version',
                         action='version',
-                        version='P2P文件传输系统 v1.0 - 第一阶段',
+                        version='P2P文件传输系统 v2.0 - 第二阶段',
                         help='显示程序版本号并退出')
 
     return parser.parse_args()
