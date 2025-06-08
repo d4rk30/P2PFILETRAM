@@ -75,10 +75,6 @@ class P2PNode:
         self.running = False
         self._start_time = time.time()
 
-        # 创建并绑定业务端口socket，让其他程序能检测到端口占用
-        self.business_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.business_socket.bind(('', self.port))
-
         # 设置信号处理
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
@@ -148,13 +144,6 @@ class P2PNode:
         self.broadcaster.stop()
         self.listener.stop()
         self.neighbor_manager.stop()
-
-        # 关闭业务端口socket
-        if hasattr(self, 'business_socket'):
-            try:
-                self.business_socket.close()
-            except:
-                pass
 
         print("[信息] 节点已停止")
 
